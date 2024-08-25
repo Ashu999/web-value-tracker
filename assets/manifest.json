@@ -1,6 +1,6 @@
 {
-  "name": "egui Template PWA",
-  "short_name": "egui-template-pwa",
+  "name": "web value tracker PWA",
+  "short_name": "web_value_tracker_pwa",
   "icons": [
     {
       "src": "./icon-256.png",
