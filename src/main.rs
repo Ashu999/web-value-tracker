@@ -20,7 +20,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "web value tracker",
         native_options,
-        Box::new(|cc| Ok(Box::new(web_value_tracker::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(web_value_tracker::ThisApp::new(cc)))),
     )
 }
 
@@ -37,7 +37,7 @@ fn main() {
             .start(
                 "the_canvas_id",
                 web_options,
-                Box::new(|cc| Ok(Box::new(web_value_tracker::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(web_value_tracker::ThisApp::new(cc)))),
             )
             .await;
 
