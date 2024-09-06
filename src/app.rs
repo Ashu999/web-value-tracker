@@ -1,5 +1,6 @@
-use egui::{ScrollArea, Ui};
+use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
+use tokio::runtime::Builder;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -8,30 +9,37 @@ pub struct ThisApp {
     table_data: Vec<Vec<String>>,
     num_rows: usize,
     num_columns: usize,
-    selected_rows: Vec<bool>,       // Add this line
-    show_confirmation_dialog: bool, // Add this line
+    selected_rows: Vec<bool>,
+    show_confirmation_dialog: bool,
+    add_row_window_open: bool,
+    new_row_name: String,
+    new_row_link: String,
+    new_row_css_selector: String,
+    new_row_value: String,
+    is_fetching: bool,
 }
 
 impl Default for ThisApp {
     fn default() -> Self {
         Self {
             // Example stuff:
-            table_data: vec![
-                vec![
-                    "Column 1".to_owned(),
-                    "Column 2".to_owned(),
-                    "Column 3".to_owned(),
-                ],
-                vec![
-                    "Data 1".to_owned(),
-                    "Data 2".to_owned(),
-                    "Data 3".to_owned(),
-                ],
-            ],
-            num_rows: 2,
-            num_columns: 3,
-            selected_rows: vec![false, false], // Add this line
-            show_confirmation_dialog: false,   // Add this line
+            table_data: vec![vec![
+                "Name".to_owned(),
+                "Link".to_owned(),
+                "CSS Selector".to_owned(),
+                "Previous Value".to_owned(),
+                "Latest Value".to_owned(),
+            ]],
+            num_rows: 0,
+            num_columns: 5,
+            selected_rows: vec![false, false],
+            show_confirmation_dialog: false,
+            add_row_window_open: false,
+            new_row_name: String::new(),
+            new_row_link: String::new(),
+            new_row_css_selector: String::new(),
+            new_row_value: String::new(),
+            is_fetching: false,
         }
     }
 }
@@ -69,7 +77,7 @@ impl eframe::App for ThisApp {
             egui::menu::bar(ui, |ui| {
                 // Add button to add new rows
                 if ui.button("➕ Add Row").clicked() {
-                    self.add_row();
+                    self.add_row_window_open = true;
                 }
 
                 // Add Delete Selected Rows button
@@ -77,7 +85,6 @@ impl eframe::App for ThisApp {
                     self.delete_selected_rows(ctx);
                 }
 
-                // egui::widgets::global_dark_light_mode_buttons(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::widgets::global_dark_light_mode_buttons(ui);
                 });
@@ -121,17 +128,113 @@ impl eframe::App for ThisApp {
                     });
                 });
         }
+
+        if self.add_row_window_open {
+            let mut open = self.add_row_window_open;
+            Window::new("Add New Row").open(&mut open).show(ctx, |ui| {
+                let this = &mut *self; // Reborrow self inside the closure
+                ui.horizontal(|ui| {
+                    ui.label("Name:");
+                    ui.add(TextEdit::singleline(&mut this.new_row_name));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Link:");
+                    ui.add(TextEdit::singleline(&mut this.new_row_link));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("CSS Selector:");
+                    ui.add(TextEdit::singleline(&mut this.new_row_css_selector));
+                });
+
+                let mut fetched_value = String::new();
+                ui.horizontal(|ui| {
+                    if ui.button("Fetch Value").clicked() && !this.is_fetching {
+                        this.is_fetching = true;
+                        let link = this.new_row_link.clone();
+                        let css_selector = this.new_row_css_selector.clone();
+                        let ctx = ctx.clone();
+
+                        // Create a new Tokio runtime for this operation
+                        let runtime = Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("Failed to create Tokio runtime");
+
+                        std::thread::spawn(move || {
+                            runtime.block_on(async {
+                                match crate::get_current_value(&link, &css_selector).await {
+                                    Ok(Some(value)) => {
+                                        // Handle successful fetch
+                                        println!("Fetched value: {}", value);
+                                        // fetched_value = value;
+                                        ctx.request_repaint();
+                                        // You'll need to update the UI with the fetched value here
+                                    }
+                                    Ok(None) => {
+                                        // Handle case where value was not found
+                                        println!("Value not found");
+                                        ctx.request_repaint();
+                                        // Update UI to show that value was not found
+                                    }
+                                    Err(e) => {
+                                        // Handle error
+                                        eprintln!("Error: {}", e);
+                                        ctx.request_repaint();
+                                        // Update UI to show error
+                                    }
+                                }
+                            });
+                        });
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Fetched Value:");
+                    ui.add(TextEdit::singleline(&mut fetched_value).interactive(false));
+                });
+
+                if this.is_fetching {
+                    ui.spinner();
+                } else {
+                    // self.new_row_value = fetched_value;
+                }
+
+                ui.horizontal(|ui| {
+                    let add_button = ui.add_enabled(
+                        !this.is_fetching && this.new_row_value.len() > 0,
+                        Button::new("Add"),
+                    );
+                    if add_button.clicked() {
+                        let new_row = vec![
+                            this.new_row_name.clone(),
+                            this.new_row_link.clone(),
+                            this.new_row_css_selector.clone(),
+                            this.new_row_value.clone(),
+                            this.new_row_value.clone(),
+                        ];
+                        this.table_data.push(new_row);
+                        this.reset_new_row_fields();
+                        this.add_row_window_open = false;
+                    }
+
+                    if ui.button("Reset").clicked() {
+                        this.reset_new_row_fields();
+                        this.add_row_window_open = false;
+                    }
+                });
+            });
+            self.add_row_window_open = open;
+        }
     }
 }
 
 impl ThisApp {
-    fn add_row(&mut self) {
-        let new_row = (0..self.num_columns)
-            .map(|i| format!("New {}", i + 1))
-            .collect();
-        self.table_data.push(new_row);
-        self.num_rows += 1;
-        self.selected_rows.push(false); // Add this line
+    fn reset_new_row_fields(&mut self) {
+        self.new_row_name.clear();
+        self.new_row_link.clear();
+        self.new_row_css_selector.clear();
+        self.new_row_value.clear();
+        self.is_fetching = false;
     }
 
     fn table_ui(&mut self, ui: &mut Ui) {
