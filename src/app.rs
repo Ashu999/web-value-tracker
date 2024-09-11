@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
+use tokio::sync::Mutex;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -14,7 +17,10 @@ pub struct ThisApp {
     new_row_name: String,
     new_row_link: String,
     new_row_css_selector: String,
+    show_spinner: bool,
     new_row_value: String,
+    #[serde(skip)]
+    new_row_value_temp: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -44,7 +50,9 @@ impl Default for ThisApp {
             new_row_name: String::new(),
             new_row_link: String::new(),
             new_row_css_selector: String::new(),
+            show_spinner: false,
             new_row_value: String::new(),
+            new_row_value_temp: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -95,6 +103,8 @@ impl ThisApp {
         self.new_row_link.clear();
         self.new_row_css_selector.clear();
         self.new_row_value.clear();
+        self.show_spinner = false;
+        self.new_row_value_temp = Arc::new(Mutex::new(None));
     }
 
     fn table_ui(&mut self, ui: &mut Ui) {
@@ -103,8 +113,8 @@ impl ThisApp {
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .columns(Column::auto().at_least(30.0), 1) // Add checkbox column
-                .columns(Column::auto().at_least(100.0), self.column_names.len())
+                .columns(Column::auto(), 1) // Checkbox column
+                .columns(Column::auto(), self.column_names.len())
                 .header(20.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("Select");
@@ -218,14 +228,41 @@ impl ThisApp {
 
                     ui.horizontal(|ui| {
                         if ui.button("Fetch Value").clicked() {
+                            this.show_spinner = true;
                             let link = this.new_row_link.clone();
                             let css_selector = this.new_row_css_selector.clone();
 
                             // let result = crate::get_current_value(&link, &css_selector);
+                            // let calculation_result = Arc::new(Mutex::new(None));
+                            let result_for_thread = this.new_row_value_temp.clone();
+
+                            let handle = tokio::spawn(async move {
+                                println!("spawn_start");
+                                let mut mutex_lock = result_for_thread.lock().await;
+                                *mutex_lock = Some(
+                                    crate::get_current_value(&link, &css_selector)
+                                        .await
+                                        .unwrap(),
+                                );
+                            });
+                            if handle.is_finished() {
+                                this.show_spinner = false;
+                                if let Ok(val) = this.new_row_value_temp.try_lock() {
+                                    println!("try_lock");
+                                    let val = val.as_ref();
+                                    if let Some(value) = val {
+                                        this.new_row_value = value.to_owned();
+                                    }
+                                }
+                            }
                         }
-                        if this.new_row_value.len() > 0 {
+                        if this.show_spinner {
                             ui.spinner();
                         }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Fetched value:");
+                        ui.add(TextEdit::singleline(&mut this.new_row_value).interactive(false));
                     });
 
                     ui.horizontal(|ui| {
@@ -254,7 +291,6 @@ impl ThisApp {
             self.show_add_row_dialog = open;
         }
     }
-
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
         if self.show_delete_confirmation_dialog {
             let selected_count = self

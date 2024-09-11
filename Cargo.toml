@@ -22,7 +22,7 @@ eframe = { version = "0.28.1", default-features = false, features = [
 ] }
 egui_extras = "0.28.1"
 log = "0.4"
-tokio = { version = "1.40.0", features = ["rt"] }
+tokio = { version = "1.40.0", features = ["full"] }
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
