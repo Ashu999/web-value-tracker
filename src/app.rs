@@ -232,20 +232,9 @@ impl ThisApp {
                             let link = this.new_row_link.clone();
                             let css_selector = this.new_row_css_selector.clone();
 
-                            // let result = crate::get_current_value(&link, &css_selector);
-                            // let calculation_result = Arc::new(Mutex::new(None));
-                            let result_for_thread = this.new_row_value_temp.clone();
+                            let handle = this.get_web_value(link, css_selector);
 
-                            let handle = tokio::spawn(async move {
-                                println!("spawn_start");
-                                let mut mutex_lock = result_for_thread.lock().await;
-                                *mutex_lock = Some(
-                                    crate::get_current_value(&link, &css_selector)
-                                        .await
-                                        .unwrap(),
-                                );
-                            });
-                            if handle.is_finished() {
+                            handle.is_finished().then(|| {
                                 this.show_spinner = false;
                                 if let Ok(val) = this.new_row_value_temp.try_lock() {
                                     println!("try_lock");
@@ -254,7 +243,7 @@ impl ThisApp {
                                         this.new_row_value = value.to_owned();
                                     }
                                 }
-                            }
+                            });
                         }
                         if this.show_spinner {
                             ui.spinner();
@@ -291,6 +280,23 @@ impl ThisApp {
             self.show_add_row_dialog = open;
         }
     }
+
+    fn get_web_value(&mut self, link: String, css_selector: String) -> tokio::task::JoinHandle<()> {
+        self.show_spinner = true;
+        let result_for_thread = self.new_row_value_temp.clone();
+
+        tokio::spawn(async move {
+            println!("spawn_start");
+            let mut mutex_lock = result_for_thread.lock().await;
+            *mutex_lock = Some(
+                crate::get_current_value(&link, &css_selector)
+                    .await
+                    .unwrap(),
+            );
+            println!("spawn_end");
+        })
+    }
+
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
         if self.show_delete_confirmation_dialog {
             let selected_count = self
