@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
+use poll_promise::Promise;
 use tokio::sync::Mutex;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -232,18 +233,24 @@ impl ThisApp {
                             let link = this.new_row_link.clone();
                             let css_selector = this.new_row_css_selector.clone();
 
-                            let handle = this.get_web_value(link, css_selector);
+                            // let handle = this.get_web_value(link, css_selector);
 
-                            handle.is_finished().then(|| {
+                            // handle.is_finished().then(|| {
+                            //     this.show_spinner = false;
+                            //     if let Ok(val) = this.new_row_value_temp.try_lock() {
+                            //         println!("try_lock");
+                            //         let val = val.as_ref();
+                            //         if let Some(value) = val {
+                            //             this.new_row_value = value.to_owned();
+                            //         }
+                            //     }
+                            // });
+                            let promise = this.get_web_value(link, css_selector);
+
+                            if let Some(value) = promise.ready() {
                                 this.show_spinner = false;
-                                if let Ok(val) = this.new_row_value_temp.try_lock() {
-                                    println!("try_lock");
-                                    let val = val.as_ref();
-                                    if let Some(value) = val {
-                                        this.new_row_value = value.to_owned();
-                                    }
-                                }
-                            });
+                                this.new_row_value = value.clone();
+                            }
                         }
                         if this.show_spinner {
                             ui.spinner();
@@ -281,21 +288,38 @@ impl ThisApp {
         }
     }
 
-    fn get_web_value(&mut self, link: String, css_selector: String) -> tokio::task::JoinHandle<()> {
+    fn get_web_value(&mut self, link: String, css_selector: String) -> Promise<String> {
         self.show_spinner = true;
-        let result_for_thread = self.new_row_value_temp.clone();
 
-        tokio::spawn(async move {
+        Promise::spawn_thread("web_value_fetch", move || {
             println!("spawn_start");
-            let mut mutex_lock = result_for_thread.lock().await;
-            *mutex_lock = Some(
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let result = runtime.block_on(async {
                 crate::get_current_value(&link, &css_selector)
                     .await
-                    .unwrap(),
-            );
+                    .unwrap_or_default()
+            });
             println!("spawn_end");
+            result
         })
     }
+
+    // fn get_web_value(&mut self, link: String, css_selector: String) -> tokio::task::JoinHandle<()> {
+    //     self.show_spinner = true;
+    //     let result_for_thread = self.new_row_value_temp.clone();
+
+    //     // tokio::spawn(async move {
+    //     tokio::task::spawn_local(async move {
+    //         println!("spawn_start");
+    //         let mut mutex_lock = result_for_thread.lock().await;
+    //         *mutex_lock = Some(
+    //             crate::get_current_value(&link, &css_selector)
+    //                 .await
+    //                 .unwrap(),
+    //         );
+    //         println!("spawn_end");
+    //     })
+    // }
 
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
         if self.show_delete_confirmation_dialog {
