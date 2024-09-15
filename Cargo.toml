@@ -27,6 +27,7 @@ tokio = { version = "1.40.0", features = ["full"] }
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 poll-promise = { version = "0.3.0", features = ["tokio"] }
+chrono = "0.4.38"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

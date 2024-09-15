@@ -8,13 +8,12 @@ use poll_promise::Promise;
 pub struct ThisApp {
     table_data: Vec<ValueData>,
     column_names: Vec<String>,
-    num_rows: usize,
+    selected_rows: Vec<bool>,
     #[serde(skip)]
     runtime_state: RuntimeState,
 }
 
 struct RuntimeState {
-    selected_rows: Vec<bool>,
     show_delete_confirmation_dialog: bool,
     show_add_row_dialog: bool,
     new_row_name: String,
@@ -33,6 +32,7 @@ struct ValueData {
     css_selector: String,
     previous_value: String,
     latest_value: String,
+    last_updated: String,
 }
 
 impl Default for ThisApp {
@@ -45,10 +45,10 @@ impl Default for ThisApp {
                 "CSS Selector".to_owned(),
                 "Previous Value".to_owned(),
                 "Latest Value".to_owned(),
+                "Last Updated".to_owned(),
             ],
-            num_rows: 0,
+            selected_rows: vec![false; 0],
             runtime_state: RuntimeState {
-                selected_rows: Vec::new(),
                 show_delete_confirmation_dialog: false,
                 show_add_row_dialog: false,
                 new_row_name: String::new(),
@@ -144,11 +144,11 @@ impl ThisApp {
                 })
                 .body(|mut body| {
                     for (row_index, row_data) in self.table_data.iter().enumerate() {
-                        let row_is_selected = self.runtime_state.selected_rows[row_index];
+                        let row_is_selected = self.selected_rows[row_index];
                         body.row(18.0, |mut row| {
                             row.col(|ui| {
                                 if ui
-                                    .checkbox(&mut self.runtime_state.selected_rows[row_index], "")
+                                    .checkbox(&mut self.selected_rows[row_index], "")
                                     .changed()
                                 {
                                     ui.ctx().request_repaint(); // Ensure UI updates immediately
@@ -160,6 +160,7 @@ impl ThisApp {
                                 &row_data.css_selector,
                                 &row_data.previous_value,
                                 &row_data.latest_value,
+                                &row_data.last_updated,
                             ];
                             for value in row_values {
                                 row.col(|ui| {
@@ -208,7 +209,6 @@ impl ThisApp {
 
     fn delete_selected_rows(&mut self) {
         let selected_count = self
-            .runtime_state
             .selected_rows
             .iter()
             .filter(|&&selected| selected)
@@ -281,16 +281,18 @@ impl ThisApp {
                             Button::new("Add"),
                         );
                         if add_button.clicked() {
+                            let cur_date_time =
+                                chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string();
                             let new_row = ValueData {
                                 name: this.runtime_state.new_row_name.clone(),
                                 link: this.runtime_state.new_row_link.clone(),
                                 css_selector: this.runtime_state.new_row_css_selector.clone(),
                                 previous_value: this.runtime_state.new_row_value.clone(),
                                 latest_value: this.runtime_state.new_row_value.clone(),
+                                last_updated: cur_date_time,
                             };
                             this.table_data.push(new_row);
-                            this.runtime_state.selected_rows.push(false);
-                            this.num_rows += 1;
+                            this.selected_rows.push(false);
                             this.reset_new_row_fields();
                         }
                     });
@@ -316,7 +318,6 @@ impl ThisApp {
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
         if self.runtime_state.show_delete_confirmation_dialog {
             let selected_count = self
-                .runtime_state
                 .selected_rows
                 .iter()
                 .filter(|&&selected| selected)
@@ -344,7 +345,6 @@ impl ThisApp {
 
     fn perform_delete(&mut self) {
         let indices_to_remove: Vec<usize> = self
-            .runtime_state
             .selected_rows
             .iter()
             .enumerate()
@@ -354,10 +354,8 @@ impl ThisApp {
         for &index in indices_to_remove.iter().rev() {
             if index < self.table_data.len() {
                 self.table_data.remove(index);
-                self.runtime_state.selected_rows.remove(index);
+                self.selected_rows.remove(index);
             }
         }
-
-        self.num_rows = self.table_data.len();
     }
 }
