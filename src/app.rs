@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use poll_promise::Promise;
-use tokio::sync::Mutex;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -12,6 +9,11 @@ pub struct ThisApp {
     table_data: Vec<ValueData>,
     column_names: Vec<String>,
     num_rows: usize,
+    #[serde(skip)]
+    runtime_state: RuntimeState,
+}
+
+struct RuntimeState {
     selected_rows: Vec<bool>,
     show_delete_confirmation_dialog: bool,
     show_add_row_dialog: bool,
@@ -20,8 +22,8 @@ pub struct ThisApp {
     new_row_css_selector: String,
     show_spinner: bool,
     new_row_value: String,
-    #[serde(skip)]
-    new_row_value_temp: Arc<Mutex<Option<String>>>,
+    fetch_value_promise: Option<Promise<String>>,
+    show_error_message: bool,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -45,15 +47,18 @@ impl Default for ThisApp {
                 "Latest Value".to_owned(),
             ],
             num_rows: 0,
-            selected_rows: Vec::new(),
-            show_delete_confirmation_dialog: false,
-            show_add_row_dialog: false,
-            new_row_name: String::new(),
-            new_row_link: String::new(),
-            new_row_css_selector: String::new(),
-            show_spinner: false,
-            new_row_value: String::new(),
-            new_row_value_temp: Arc::new(Mutex::new(None)),
+            runtime_state: RuntimeState {
+                selected_rows: Vec::new(),
+                show_delete_confirmation_dialog: false,
+                show_add_row_dialog: false,
+                new_row_name: String::new(),
+                new_row_link: String::new(),
+                new_row_css_selector: String::new(),
+                show_spinner: false,
+                new_row_value: String::new(),
+                fetch_value_promise: None,
+                show_error_message: false,
+            },
         }
     }
 }
@@ -95,17 +100,28 @@ impl eframe::App for ThisApp {
             ThisApp::code_link(ui);
             ThisApp::condional_components(self, ctx);
         });
+
+        // Poll the promise in the update loop
+        if let Some(promise) = self.runtime_state.fetch_value_promise.as_mut() {
+            if let Some(value) = promise.ready() {
+                self.runtime_state.show_spinner = false;
+                self.runtime_state.new_row_value = value.clone();
+                self.runtime_state.fetch_value_promise = None; // Clear the promise after completion
+            } else {
+                self.runtime_state.show_spinner = true;
+            }
+        }
     }
 }
 
 impl ThisApp {
     fn reset_new_row_fields(&mut self) {
-        self.new_row_name.clear();
-        self.new_row_link.clear();
-        self.new_row_css_selector.clear();
-        self.new_row_value.clear();
-        self.show_spinner = false;
-        self.new_row_value_temp = Arc::new(Mutex::new(None));
+        self.runtime_state.new_row_name.clear();
+        self.runtime_state.new_row_link.clear();
+        self.runtime_state.new_row_css_selector.clear();
+        self.runtime_state.new_row_value.clear();
+        self.runtime_state.show_spinner = false;
+        self.runtime_state.show_error_message = false;
     }
 
     fn table_ui(&mut self, ui: &mut Ui) {
@@ -128,11 +144,11 @@ impl ThisApp {
                 })
                 .body(|mut body| {
                     for (row_index, row_data) in self.table_data.iter().enumerate() {
-                        let row_is_selected = self.selected_rows[row_index];
+                        let row_is_selected = self.runtime_state.selected_rows[row_index];
                         body.row(18.0, |mut row| {
                             row.col(|ui| {
                                 if ui
-                                    .checkbox(&mut self.selected_rows[row_index], "")
+                                    .checkbox(&mut self.runtime_state.selected_rows[row_index], "")
                                     .changed()
                                 {
                                     ui.ctx().request_repaint(); // Ensure UI updates immediately
@@ -175,7 +191,7 @@ impl ThisApp {
         egui::menu::bar(ui, |ui| {
             // Add button to add new rows
             if ui.button("➕ Add Row").clicked() {
-                self.show_add_row_dialog = true;
+                self.runtime_state.show_add_row_dialog = true;
             }
 
             // Add Delete Selected Rows button
@@ -192,12 +208,13 @@ impl ThisApp {
 
     fn delete_selected_rows(&mut self) {
         let selected_count = self
+            .runtime_state
             .selected_rows
             .iter()
             .filter(|&&selected| selected)
             .count();
         if selected_count > 0 {
-            self.show_delete_confirmation_dialog = true;
+            self.runtime_state.show_delete_confirmation_dialog = true;
         }
     }
 
@@ -207,8 +224,8 @@ impl ThisApp {
     }
 
     fn add_row_dialog(&mut self, ctx: &egui::Context) {
-        if self.show_add_row_dialog {
-            let mut open = self.show_add_row_dialog;
+        if self.runtime_state.show_add_row_dialog {
+            let mut open = self.runtime_state.show_add_row_dialog;
             Window::new("Add New Row")
                 .open(&mut open)
                 .collapsible(false)
@@ -216,49 +233,42 @@ impl ThisApp {
                     let this = &mut *self; // Reborrow self inside the closure
                     ui.horizontal(|ui| {
                         ui.label("Name:");
-                        ui.add(TextEdit::singleline(&mut this.new_row_name));
+                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_name));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Link:");
-                        ui.add(TextEdit::singleline(&mut this.new_row_link));
+                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_link));
                     });
                     ui.horizontal(|ui| {
                         ui.label("CSS Selector:");
-                        ui.add(TextEdit::singleline(&mut this.new_row_css_selector));
+                        ui.add(TextEdit::singleline(
+                            &mut this.runtime_state.new_row_css_selector,
+                        ));
                     });
 
                     ui.horizontal(|ui| {
                         if ui.button("Fetch Value").clicked() {
-                            this.show_spinner = true;
-                            let link = this.new_row_link.clone();
-                            let css_selector = this.new_row_css_selector.clone();
+                            let link = this.runtime_state.new_row_link.clone();
+                            let css_selector = this.runtime_state.new_row_css_selector.clone();
 
-                            // let handle = this.get_web_value(link, css_selector);
-
-                            // handle.is_finished().then(|| {
-                            //     this.show_spinner = false;
-                            //     if let Ok(val) = this.new_row_value_temp.try_lock() {
-                            //         println!("try_lock");
-                            //         let val = val.as_ref();
-                            //         if let Some(value) = val {
-                            //             this.new_row_value = value.to_owned();
-                            //         }
-                            //     }
-                            // });
-                            let promise = this.get_web_value(link, css_selector);
-
-                            if let Some(value) = promise.ready() {
-                                this.show_spinner = false;
-                                this.new_row_value = value.clone();
-                            }
+                            this.runtime_state.fetch_value_promise =
+                                Some(this.get_web_value(link, css_selector));
                         }
-                        if this.show_spinner {
+                        if this.runtime_state.show_spinner {
                             ui.spinner();
+                        }
+                        if this.runtime_state.show_error_message {
+                            ui.horizontal(|ui| {
+                                ui.label("Error fetching value: check Link or CSS Selector.");
+                            });
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label("Fetched value:");
-                        ui.add(TextEdit::singleline(&mut this.new_row_value).interactive(false));
+                        ui.add(
+                            TextEdit::singleline(&mut this.runtime_state.new_row_value)
+                                .interactive(false),
+                        );
                     });
 
                     ui.horizontal(|ui| {
@@ -266,64 +276,47 @@ impl ThisApp {
                             this.reset_new_row_fields();
                         }
 
-                        let add_button =
-                            ui.add_enabled(this.new_row_value.len() > 0, Button::new("Add"));
+                        let add_button = ui.add_enabled(
+                            this.runtime_state.new_row_value.len() > 0,
+                            Button::new("Add"),
+                        );
                         if add_button.clicked() {
                             let new_row = ValueData {
-                                name: this.new_row_name.clone(),
-                                link: this.new_row_link.clone(),
-                                css_selector: this.new_row_css_selector.clone(),
-                                previous_value: "-".to_string(),
-                                latest_value: this.new_row_value.clone(),
+                                name: this.runtime_state.new_row_name.clone(),
+                                link: this.runtime_state.new_row_link.clone(),
+                                css_selector: this.runtime_state.new_row_css_selector.clone(),
+                                previous_value: this.runtime_state.new_row_value.clone(),
+                                latest_value: this.runtime_state.new_row_value.clone(),
                             };
                             this.table_data.push(new_row);
-                            this.selected_rows.push(false);
+                            this.runtime_state.selected_rows.push(false);
                             this.num_rows += 1;
                             this.reset_new_row_fields();
-                            this.show_add_row_dialog = false;
                         }
                     });
                 });
-            self.show_add_row_dialog = open;
+            self.runtime_state.show_add_row_dialog = open;
         }
     }
 
     fn get_web_value(&mut self, link: String, css_selector: String) -> Promise<String> {
-        self.show_spinner = true;
+        self.runtime_state.show_spinner = true;
 
         Promise::spawn_thread("web_value_fetch", move || {
-            println!("spawn_start");
             let runtime = tokio::runtime::Runtime::new().unwrap();
             let result = runtime.block_on(async {
                 crate::get_current_value(&link, &css_selector)
                     .await
                     .unwrap_or_default()
             });
-            println!("spawn_end");
             result
         })
     }
 
-    // fn get_web_value(&mut self, link: String, css_selector: String) -> tokio::task::JoinHandle<()> {
-    //     self.show_spinner = true;
-    //     let result_for_thread = self.new_row_value_temp.clone();
-
-    //     // tokio::spawn(async move {
-    //     tokio::task::spawn_local(async move {
-    //         println!("spawn_start");
-    //         let mut mutex_lock = result_for_thread.lock().await;
-    //         *mutex_lock = Some(
-    //             crate::get_current_value(&link, &css_selector)
-    //                 .await
-    //                 .unwrap(),
-    //         );
-    //         println!("spawn_end");
-    //     })
-    // }
-
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
-        if self.show_delete_confirmation_dialog {
+        if self.runtime_state.show_delete_confirmation_dialog {
             let selected_count = self
+                .runtime_state
                 .selected_rows
                 .iter()
                 .filter(|&&selected| selected)
@@ -339,10 +332,10 @@ impl ThisApp {
                     ui.horizontal(|ui| {
                         if ui.button("Yes").clicked() {
                             ThisApp::perform_delete(self);
-                            self.show_delete_confirmation_dialog = false;
+                            self.runtime_state.show_delete_confirmation_dialog = false;
                         }
                         if ui.button("No").clicked() {
-                            self.show_delete_confirmation_dialog = false;
+                            self.runtime_state.show_delete_confirmation_dialog = false;
                         }
                     });
                 });
@@ -351,6 +344,7 @@ impl ThisApp {
 
     fn perform_delete(&mut self) {
         let indices_to_remove: Vec<usize> = self
+            .runtime_state
             .selected_rows
             .iter()
             .enumerate()
@@ -360,7 +354,7 @@ impl ThisApp {
         for &index in indices_to_remove.iter().rev() {
             if index < self.table_data.len() {
                 self.table_data.remove(index);
-                self.selected_rows.remove(index);
+                self.runtime_state.selected_rows.remove(index);
             }
         }
 

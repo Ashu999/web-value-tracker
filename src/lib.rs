@@ -1,4 +1,3 @@
-#![warn(clippy::all, rust_2018_idioms)]
 mod app;
 pub use app::ThisApp;
 
@@ -19,16 +18,6 @@ pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, 
 
     let _e = tab.wait_for_element(css_selector)?;
 
-    // Execute JavaScript to get the value
-    // let value_js_result = tab.evaluate(
-    //     &format!(
-    //         r#"
-    //     document.querySelector({:?})?.innerText.trim()
-    //     "#,
-    //         css_selector
-    //     ),
-    //     true,
-    // )?;
     let value_js_result = tab.evaluate(
         &format!(
             r#"
@@ -40,7 +29,13 @@ pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, 
     )?;
 
     // Extract the value string from the JavaScript result
-    let value_string = value_js_result.value.unwrap().to_string();
+    let mut value_string = value_js_result.value.unwrap().to_string();
+
+    // Remove leading and trailing quotes
+    if value_string.starts_with('"') && value_string.ends_with('"') {
+        value_string.remove(0);
+        value_string.pop();
+    }
 
     println!("value_string: {}", value_string);
     Ok(value_string)
