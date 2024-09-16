@@ -1,6 +1,7 @@
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use poll_promise::Promise;
+use ulid::Ulid;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -27,6 +28,7 @@ struct RuntimeState {
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 struct ValueData {
+    id: String,
     name: String,
     link: String,
     css_selector: String,
@@ -282,17 +284,7 @@ impl ThisApp {
                             Button::new("Add"),
                         );
                         if add_button.clicked() {
-                            let cur_date_time =
-                                chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string();
-                            let new_row = ValueData {
-                                name: this.runtime_state.new_row_name.clone(),
-                                link: this.runtime_state.new_row_link.clone(),
-                                css_selector: this.runtime_state.new_row_css_selector.clone(),
-                                previous_value: this.runtime_state.new_row_value.clone(),
-                                latest_value: this.runtime_state.new_row_value.clone(),
-                                last_updated: cur_date_time,
-                            };
-                            this.table_data.push(new_row);
+                            this.add_new_row();
                             this.selected_rows.push(false);
                             this.reset_new_row_fields();
                         }
@@ -300,6 +292,19 @@ impl ThisApp {
                 });
             self.runtime_state.show_add_row_dialog = open;
         }
+    }
+    fn add_new_row(&mut self) {
+        let cur_date_time = chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string();
+        let new_row = ValueData {
+            id: Ulid::new().to_string(),
+            name: self.runtime_state.new_row_name.clone(),
+            link: self.runtime_state.new_row_link.clone(),
+            css_selector: self.runtime_state.new_row_css_selector.clone(),
+            previous_value: self.runtime_state.new_row_value.clone(),
+            latest_value: self.runtime_state.new_row_value.clone(),
+            last_updated: cur_date_time,
+        };
+        self.table_data.push(new_row);
     }
 
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
