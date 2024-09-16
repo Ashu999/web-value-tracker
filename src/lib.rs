@@ -2,6 +2,7 @@ mod app;
 pub use app::ThisApp;
 
 use headless_chrome::{Browser, LaunchOptions};
+use poll_promise::Promise;
 use std::error::Error;
 
 pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<dyn Error>> {
@@ -39,4 +40,16 @@ pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, 
 
     println!("value_string: {}", value_string);
     Ok(value_string)
+}
+
+fn get_web_value(link: String, css_selector: String) -> Promise<String> {
+    Promise::spawn_thread("web_value_fetch", move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(async {
+            crate::get_current_value(&link, &css_selector)
+                .await
+                .unwrap_or_default()
+        });
+        result
+    })
 }

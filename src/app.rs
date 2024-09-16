@@ -250,9 +250,10 @@ impl ThisApp {
                         if ui.button("Fetch Value").clicked() {
                             let link = this.runtime_state.new_row_link.clone();
                             let css_selector = this.runtime_state.new_row_css_selector.clone();
+                            this.runtime_state.show_spinner = true;
 
                             this.runtime_state.fetch_value_promise =
-                                Some(this.get_web_value(link, css_selector));
+                                Some(crate::get_web_value(link, css_selector));
                         }
                         if this.runtime_state.show_spinner {
                             ui.spinner();
@@ -299,20 +300,6 @@ impl ThisApp {
                 });
             self.runtime_state.show_add_row_dialog = open;
         }
-    }
-
-    fn get_web_value(&mut self, link: String, css_selector: String) -> Promise<String> {
-        self.runtime_state.show_spinner = true;
-
-        Promise::spawn_thread("web_value_fetch", move || {
-            let runtime = tokio::runtime::Runtime::new().unwrap();
-            let result = runtime.block_on(async {
-                crate::get_current_value(&link, &css_selector)
-                    .await
-                    .unwrap_or_default()
-            });
-            result
-        })
     }
 
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
