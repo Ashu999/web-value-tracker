@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use poll_promise::Promise;
@@ -22,8 +24,11 @@ struct RuntimeState {
     new_row_css_selector: String,
     show_spinner: bool,
     new_row_value: String,
-    fetch_value_promise: Option<Promise<String>>,
+    fetch_value_promise: Option<Promise<(String, String)>>,
     show_error_message: bool,
+    fetching_latest_values: bool,
+    fetch_latest_values_promises: VecDeque<Promise<(String, String)>>,
+    resolved_promises_count: usize,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -60,6 +65,9 @@ impl Default for ThisApp {
                 new_row_value: String::new(),
                 fetch_value_promise: None,
                 show_error_message: false,
+                fetching_latest_values: false,
+                fetch_latest_values_promises: VecDeque::new(),
+                resolved_promises_count: 0,
             },
         }
     }
@@ -104,13 +112,30 @@ impl eframe::App for ThisApp {
         });
 
         // Poll the promise in the update loop
-        if let Some(promise) = self.runtime_state.fetch_value_promise.as_mut() {
-            if let Some(value) = promise.ready() {
-                self.runtime_state.show_spinner = false;
-                self.runtime_state.new_row_value = value.clone();
-                self.runtime_state.fetch_value_promise = None; // Clear the promise after completion
-            } else {
-                self.runtime_state.show_spinner = true;
+        if self.runtime_state.show_add_row_dialog {
+            if let Some(promise) = self.runtime_state.fetch_value_promise.as_mut() {
+                if let Some(value) = promise.ready() {
+                    self.runtime_state.show_spinner = false;
+                    self.runtime_state.new_row_value = value.1.clone();
+                    self.runtime_state.fetch_value_promise = None; // Clear the promise after completion
+                } else {
+                    self.runtime_state.show_spinner = true;
+                }
+            }
+        }
+
+        if self.runtime_state.fetching_latest_values {
+            if let Some(promise) = self.runtime_state.fetch_latest_values_promises.front() {
+                if let Some((id, value)) = promise.ready() {
+                    println!("promise ready");
+                    self.update_value(id.clone(), value.clone());
+                    self.runtime_state.fetch_latest_values_promises.pop_front();
+                    self.runtime_state.resolved_promises_count += 1;
+                }
+                if self.runtime_state.resolved_promises_count == self.table_data.len() {
+                    self.runtime_state.fetching_latest_values = false;
+                    self.runtime_state.resolved_promises_count = 0;
+                }
             }
         }
     }
@@ -192,14 +217,25 @@ impl ThisApp {
 
     fn menu_bar(&mut self, ui: &mut Ui) {
         egui::menu::bar(ui, |ui| {
-            // Add button to add new rows
+            // Add new rows
             if ui.button("➕ Add Row").clicked() {
                 self.runtime_state.show_add_row_dialog = true;
             }
 
-            // Add Delete Selected Rows button
+            // Delete Selected Rows button
             if ui.button("🗑 Delete Selected Rows").clicked() {
                 ThisApp::delete_selected_rows(self);
+            }
+
+            // Fetch latest values button
+            if ui
+                .add_enabled(
+                    !self.runtime_state.fetching_latest_values,
+                    egui::Button::new("🔄 Fetch Latest Values"),
+                )
+                .clicked()
+            {
+                self.fetch_latest_values();
             }
 
             // dark/light mode toggle button
@@ -255,7 +291,7 @@ impl ThisApp {
                             this.runtime_state.show_spinner = true;
 
                             this.runtime_state.fetch_value_promise =
-                                Some(crate::get_web_value(link, css_selector));
+                                Some(crate::get_web_value(String::new(), link, css_selector));
                         }
                         if this.runtime_state.show_spinner {
                             ui.spinner();
@@ -293,8 +329,9 @@ impl ThisApp {
             self.runtime_state.show_add_row_dialog = open;
         }
     }
+
     fn add_new_row(&mut self) {
-        let cur_date_time = chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string();
+        let cur_date_time = ThisApp::get_current_date_time();
         let new_row = ValueData {
             id: Ulid::new().to_string(),
             name: self.runtime_state.new_row_name.clone(),
@@ -305,6 +342,10 @@ impl ThisApp {
             last_updated: cur_date_time,
         };
         self.table_data.push(new_row);
+    }
+
+    fn get_current_date_time() -> String {
+        chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string()
     }
 
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
@@ -348,6 +389,33 @@ impl ThisApp {
                 self.table_data.remove(index);
                 self.selected_rows.remove(index);
             }
+        }
+    }
+
+    fn update_value(&mut self, id: String, value: String) {
+        println!("Updating value for ID: {}, Value: {}", id, value);
+        if let Some(index) = self.table_data.iter().position(|row| row.id == id) {
+            let row = &mut self.table_data[index];
+            row.previous_value = row.latest_value.clone();
+            row.latest_value = value;
+            row.last_updated = ThisApp::get_current_date_time();
+        }
+    }
+
+    fn fetch_latest_values(&mut self) {
+        // Make Fetch Latest Values button unclickable
+        self.runtime_state.fetching_latest_values = true;
+
+        // Iterate over table_data and fetch latest values
+        for row in &self.table_data {
+            let id = row.id.clone();
+            let link = row.link.clone();
+            let css_selector = row.css_selector.clone();
+
+            let promise = crate::get_web_value(id, link, css_selector);
+            self.runtime_state
+                .fetch_latest_values_promises
+                .push_back(promise);
         }
     }
 }

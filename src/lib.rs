@@ -42,14 +42,14 @@ pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, 
     Ok(value_string)
 }
 
-fn get_web_value(link: String, css_selector: String) -> Promise<String> {
-    Promise::spawn_thread("web_value_fetch", move || {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
+fn get_web_value(id: String, link: String, css_selector: String) -> Promise<(String, String)> {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    Promise::spawn_blocking(move || {
         let result = runtime.block_on(async {
             crate::get_current_value(&link, &css_selector)
                 .await
                 .unwrap_or_default()
         });
-        result
+        (id, result)
     })
 }
