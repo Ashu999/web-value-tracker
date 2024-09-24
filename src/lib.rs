@@ -2,6 +2,7 @@ mod app;
 pub use app::ThisApp;
 
 use headless_chrome::{Browser, LaunchOptions};
+use notify_rust::{Notification, Timeout};
 use poll_promise::Promise;
 use std::error::Error;
 
@@ -52,4 +53,17 @@ fn get_web_value(id: String, link: String, css_selector: String) -> Promise<(Str
         });
         (id, result)
     })
+}
+
+fn show_notifcation() {
+    Notification::new()
+        .summary(format!("{}", crate::get_current_date_time()).as_str())
+        .body("This will almost look like a real firefox notification.")
+        .timeout(Timeout::Never) // this however is
+        .show()
+        .unwrap();
+}
+
+fn get_current_date_time() -> String {
+    chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string()
 }

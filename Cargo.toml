@@ -28,8 +28,10 @@ tokio = { version = "1.40.0", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 poll-promise = { version = "0.3.0", features = ["tokio"] }
 chrono = "0.4.38"
-tokio-cron-scheduler = "0.11.0"
+tokio-cron-scheduler = "0.13.0"
 ulid = "1.1.3"
+crossbeam-channel = "0.5.13"
+notify-rust = "4.11.3"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

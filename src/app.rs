@@ -1,8 +1,13 @@
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    thread::{self},
+};
 
 use egui::{Button, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use poll_promise::Promise;
+use std::time::Duration;
+use tokio_cron_scheduler::{Job, JobScheduler};
 use ulid::Ulid;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -29,6 +34,9 @@ struct RuntimeState {
     fetching_latest_values: bool,
     fetch_latest_values_promises: VecDeque<Promise<(String, String)>>,
     resolved_promises_count: usize,
+    scheduled_job_setup: bool,
+    tx: crossbeam_channel::Sender<()>,
+    rx: crossbeam_channel::Receiver<()>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -44,6 +52,7 @@ struct ValueData {
 
 impl Default for ThisApp {
     fn default() -> Self {
+        let (tx, rx) = crossbeam_channel::bounded(1);
         Self {
             table_data: Vec::new(),
             column_names: vec![
@@ -68,6 +77,9 @@ impl Default for ThisApp {
                 fetching_latest_values: false,
                 fetch_latest_values_promises: VecDeque::new(),
                 resolved_promises_count: 0,
+                scheduled_job_setup: false,
+                tx,
+                rx,
             },
         }
     }
@@ -102,13 +114,13 @@ impl eframe::App for ThisApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
-            ThisApp::menu_bar(self, ui);
+            Self::menu_bar(self, ui);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ThisApp::table_ui(self, ui);
-            ThisApp::code_link(ui);
-            ThisApp::condional_components(self, ctx);
+            Self::table_ui(self, ui);
+            Self::code_link(ui);
+            Self::condional_components(self, ctx);
         });
 
         // Poll the promise in the update loop
@@ -136,6 +148,22 @@ impl eframe::App for ThisApp {
                     self.runtime_state.fetching_latest_values = false;
                     self.runtime_state.resolved_promises_count = 0;
                 }
+            }
+        }
+
+        if !self.runtime_state.scheduled_job_setup {
+            // self.fetch_latest_values(); //refresh the values every at startup
+            self.sheduled_job();
+            self.runtime_state.scheduled_job_setup = true;
+        }
+
+        if self.runtime_state.scheduled_job_setup {
+            if self.runtime_state.rx.try_recv().is_ok() {
+                println!(
+                    "sheduled_job: rx received at {}",
+                    crate::get_current_date_time()
+                );
+                // self.fetch_latest_values();
             }
         }
     }
@@ -224,7 +252,7 @@ impl ThisApp {
 
             // Delete Selected Rows button
             if ui.button("🗑 Delete Selected Rows").clicked() {
-                ThisApp::delete_selected_rows(self);
+                Self::delete_selected_rows(self);
             }
 
             // Fetch latest values button
@@ -238,11 +266,26 @@ impl ThisApp {
                 self.fetch_latest_values();
             }
 
+            ui.menu_button("📐 Settings", Self::nested_menus);
+
             // dark/light mode toggle button
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
+    }
+
+    fn nested_menus(ui: &mut egui::Ui) {
+        ui.set_max_width(200.0); // To make sure we wrap long text
+
+        if ui.button("🔔 Test notification").clicked() {
+            crate::show_notifcation();
+            ui.close_menu();
+        }
+
+        if ui.button("⏳ Set time interval").clicked() {
+            ui.close_menu();
+        }
     }
 
     fn delete_selected_rows(&mut self) {
@@ -257,8 +300,8 @@ impl ThisApp {
     }
 
     fn condional_components(&mut self, ctx: &egui::Context) {
-        ThisApp::add_row_dialog(self, ctx);
-        ThisApp::delete_confirmation_dialog(self, ctx);
+        Self::add_row_dialog(self, ctx);
+        Self::delete_confirmation_dialog(self, ctx);
     }
 
     fn add_row_dialog(&mut self, ctx: &egui::Context) {
@@ -331,7 +374,7 @@ impl ThisApp {
     }
 
     fn add_new_row(&mut self) {
-        let cur_date_time = ThisApp::get_current_date_time();
+        let cur_date_time = crate::get_current_date_time();
         let new_row = ValueData {
             id: Ulid::new().to_string(),
             name: self.runtime_state.new_row_name.clone(),
@@ -342,10 +385,6 @@ impl ThisApp {
             last_updated: cur_date_time,
         };
         self.table_data.push(new_row);
-    }
-
-    fn get_current_date_time() -> String {
-        chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string()
     }
 
     fn delete_confirmation_dialog(&mut self, ctx: &egui::Context) {
@@ -365,7 +404,7 @@ impl ThisApp {
                     ));
                     ui.horizontal(|ui| {
                         if ui.button("Yes").clicked() {
-                            ThisApp::perform_delete(self);
+                            Self::perform_delete(self);
                             self.runtime_state.show_delete_confirmation_dialog = false;
                         }
                         if ui.button("No").clicked() {
@@ -398,11 +437,12 @@ impl ThisApp {
             let row = &mut self.table_data[index];
             row.previous_value = row.latest_value.clone();
             row.latest_value = value;
-            row.last_updated = ThisApp::get_current_date_time();
+            row.last_updated = crate::get_current_date_time();
         }
     }
 
     fn fetch_latest_values(&mut self) {
+        println!("fecting latest values");
         // Make Fetch Latest Values button unclickable
         self.runtime_state.fetching_latest_values = true;
 
@@ -417,5 +457,35 @@ impl ThisApp {
                 .fetch_latest_values_promises
                 .push_back(promise);
         }
+    }
+
+    fn sheduled_job(&mut self) {
+        println!("sheduled_job called");
+        let tx = self.runtime_state.tx.clone();
+
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let jobs_scheduler = JobScheduler::new().await.unwrap();
+                jobs_scheduler
+                    .add(
+                        Job::new_repeated(Duration::from_secs(60), move |_uuid, _l| {
+                            if let Err(e) = tx.send(()) {
+                                eprintln!("Failed to send job signal: {:?}", e);
+                            } else {
+                                println!(
+                                    "sheduled_job: tx sent at {}",
+                                    crate::get_current_date_time()
+                                );
+                            }
+                        })
+                        .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                jobs_scheduler.start().await.unwrap();
+                tokio::signal::ctrl_c().await.unwrap();
+            });
+        });
     }
 }
