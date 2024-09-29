@@ -4,9 +4,9 @@ pub use app::ThisApp;
 use headless_chrome::{Browser, LaunchOptions};
 use notify_rust::{Notification, Timeout};
 use poll_promise::Promise;
-use std::error::Error;
+use std::{collections::VecDeque, error::Error};
 
-pub async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<dyn Error>> {
+async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<dyn Error>> {
     let browser = Browser::new(LaunchOptions {
         headless: true,
         ..Default::default()
@@ -66,4 +66,22 @@ fn show_notifcation() {
 
 fn get_current_date_time() -> String {
     chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string()
+}
+
+fn fetch_latest_values(
+    table_data: &Vec<crate::app::ValueData>,
+) -> VecDeque<Promise<(String, String)>> {
+    println!("fetching latest values");
+    let mut promises = VecDeque::new();
+
+    for row in table_data {
+        let id = row.id.clone();
+        let link = row.link.clone();
+        let css_selector = row.css_selector.clone();
+
+        let promise = get_web_value(id, link, css_selector);
+        promises.push_back(promise);
+    }
+
+    promises
 }

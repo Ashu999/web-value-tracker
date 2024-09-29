@@ -40,14 +40,14 @@ struct RuntimeState {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
-struct ValueData {
-    id: String,
-    name: String,
-    link: String,
-    css_selector: String,
-    previous_value: String,
-    latest_value: String,
-    last_updated: String,
+pub struct ValueData {
+    pub id: String,
+    pub name: String,
+    pub link: String,
+    pub css_selector: String,
+    pub previous_value: String,
+    pub latest_value: String,
+    pub last_updated: String,
 }
 
 impl Default for ThisApp {
@@ -442,22 +442,27 @@ impl ThisApp {
     }
 
     fn fetch_latest_values(&mut self) {
-        println!("fecting latest values");
-        // Make Fetch Latest Values button unclickable
         self.runtime_state.fetching_latest_values = true;
-
-        // Iterate over table_data and fetch latest values
-        for row in &self.table_data {
-            let id = row.id.clone();
-            let link = row.link.clone();
-            let css_selector = row.css_selector.clone();
-
-            let promise = crate::get_web_value(id, link, css_selector);
-            self.runtime_state
-                .fetch_latest_values_promises
-                .push_back(promise);
-        }
+        self.runtime_state.fetch_latest_values_promises =
+            crate::fetch_latest_values(&self.table_data);
     }
+    // fn fetch_latest_values(&mut self) {
+    //     println!("fecting latest values");
+    //     // Make Fetch Latest Values button unclickable
+    //     self.runtime_state.fetching_latest_values = true;
+
+    //     // Iterate over table_data and fetch latest values
+    //     for row in &self.table_data {
+    //         let id = row.id.clone();
+    //         let link = row.link.clone();
+    //         let css_selector = row.css_selector.clone();
+
+    //         let promise = crate::get_web_value(id, link, css_selector);
+    //         self.runtime_state
+    //             .fetch_latest_values_promises
+    //             .push_back(promise);
+    //     }
+    // }
 
     fn sheduled_job(&mut self) {
         println!("sheduled_job called");
