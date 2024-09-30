@@ -39,7 +39,7 @@ async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<
         value_string.pop();
     }
 
-    println!("value_string: {}", value_string);
+    println!("value_string: {}", value_string); //this runs even when app is minimized
     Ok(value_string)
 }
 

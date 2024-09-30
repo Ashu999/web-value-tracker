@@ -1,5 +1,9 @@
 use std::{
     collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::{self},
 };
 
@@ -35,8 +39,7 @@ struct RuntimeState {
     fetch_latest_values_promises: VecDeque<Promise<(String, String)>>,
     resolved_promises_count: usize,
     scheduled_job_setup: bool,
-    tx: crossbeam_channel::Sender<()>,
-    rx: crossbeam_channel::Receiver<()>,
+    scheduled_job_flag: Arc<AtomicBool>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -52,7 +55,6 @@ pub struct ValueData {
 
 impl Default for ThisApp {
     fn default() -> Self {
-        let (tx, rx) = crossbeam_channel::bounded(1);
         Self {
             table_data: Vec::new(),
             column_names: vec![
@@ -78,8 +80,7 @@ impl Default for ThisApp {
                 fetch_latest_values_promises: VecDeque::new(),
                 resolved_promises_count: 0,
                 scheduled_job_setup: false,
-                tx,
-                rx,
+                scheduled_job_flag: Arc::new(AtomicBool::new(false)),
             },
         }
     }
@@ -111,6 +112,9 @@ impl eframe::App for ThisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
+
+        // Request a auto-repaint after 1 second
+        // ctx.request_repaint_after(Duration::from_secs(1));
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
@@ -151,20 +155,23 @@ impl eframe::App for ThisApp {
             }
         }
 
+        //initialize the sheduled job
         if !self.runtime_state.scheduled_job_setup {
-            // self.fetch_latest_values(); //refresh the values every at startup
-            self.sheduled_job();
+            // self.fetch_latest_values(); //refresh the values everytime app starts
+            self.sheduled_job(ctx);
             self.runtime_state.scheduled_job_setup = true;
         }
 
-        if self.runtime_state.scheduled_job_setup {
-            if self.runtime_state.rx.try_recv().is_ok() {
-                println!(
-                    "sheduled_job: rx received at {}",
-                    crate::get_current_date_time()
-                );
-                // self.fetch_latest_values();
-            }
+        //poll the sheduled job
+        if self.runtime_state.scheduled_job_flag.load(Ordering::SeqCst) {
+            self.runtime_state
+                .scheduled_job_flag
+                .store(false, Ordering::SeqCst);
+            println!(
+                "sheduled_job: flag received at {}",
+                crate::get_current_date_time()
+            );
+            // self.fetch_latest_values();
         }
     }
 }
@@ -464,25 +471,24 @@ impl ThisApp {
     //     }
     // }
 
-    fn sheduled_job(&mut self) {
+    fn sheduled_job(&mut self, ctx: &egui::Context) {
         println!("sheduled_job called");
-        let tx = self.runtime_state.tx.clone();
-
+        let flag = self.runtime_state.scheduled_job_flag.clone();
+        let ctx = ctx.clone();
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let jobs_scheduler = JobScheduler::new().await.unwrap();
                 jobs_scheduler
                     .add(
-                        Job::new_repeated(Duration::from_secs(60), move |_uuid, _l| {
-                            if let Err(e) = tx.send(()) {
-                                eprintln!("Failed to send job signal: {:?}", e);
-                            } else {
-                                println!(
-                                    "sheduled_job: tx sent at {}",
-                                    crate::get_current_date_time()
-                                );
-                            }
+                        Job::new_repeated(Duration::from_secs(5), move |_uuid, _l| {
+                            flag.store(true, Ordering::SeqCst);
+                            println!(
+                                "sheduled_job: flag set at {}",
+                                crate::get_current_date_time()
+                            );
+                            // call repaint_signtal here
+                            ctx.request_repaint();
                         })
                         .unwrap(),
                     )
