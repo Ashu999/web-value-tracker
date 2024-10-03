@@ -19,7 +19,7 @@ async fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "web value tracker",
+        "Web value tracker",
         native_options,
         Box::new(|cc| Ok(Box::new(web_value_tracker::ThisApp::new(cc)))),
     )

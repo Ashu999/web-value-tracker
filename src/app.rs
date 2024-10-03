@@ -1,9 +1,5 @@
 use std::{
     collections::VecDeque,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     thread::{self},
 };
 
@@ -39,7 +35,8 @@ struct RuntimeState {
     fetch_latest_values_promises: VecDeque<Promise<(String, String)>>,
     resolved_promises_count: usize,
     scheduled_job_setup: bool,
-    scheduled_job_flag: Arc<AtomicBool>,
+    mpsc_sender: std::sync::mpsc::Sender<VecDeque<(String, String)>>,
+    mpsc_receiver: std::sync::mpsc::Receiver<VecDeque<(String, String)>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -55,6 +52,7 @@ pub struct ValueData {
 
 impl Default for ThisApp {
     fn default() -> Self {
+        let (mpsc_sender, mpsc_receiver) = std::sync::mpsc::channel();
         Self {
             table_data: Vec::new(),
             column_names: vec![
@@ -80,7 +78,8 @@ impl Default for ThisApp {
                 fetch_latest_values_promises: VecDeque::new(),
                 resolved_promises_count: 0,
                 scheduled_job_setup: false,
-                scheduled_job_flag: Arc::new(AtomicBool::new(false)),
+                mpsc_sender,
+                mpsc_receiver,
             },
         }
     }
@@ -162,16 +161,11 @@ impl eframe::App for ThisApp {
             self.runtime_state.scheduled_job_setup = true;
         }
 
-        //poll the sheduled job
-        if self.runtime_state.scheduled_job_flag.load(Ordering::SeqCst) {
-            self.runtime_state
-                .scheduled_job_flag
-                .store(false, Ordering::SeqCst);
-            println!(
-                "sheduled_job: flag received at {}",
-                crate::get_current_date_time()
-            );
-            // self.fetch_latest_values();
+        //poll the mpsc_receiver
+        if let Ok(new_values) = self.runtime_state.mpsc_receiver.try_recv() {
+            for (id, value) in new_values {
+                self.update_value(id, value);
+            }
         }
     }
 }
@@ -286,7 +280,7 @@ impl ThisApp {
         ui.set_max_width(200.0); // To make sure we wrap long text
 
         if ui.button("🔔 Test notification").clicked() {
-            crate::show_notifcation();
+            crate::show_notifcation(&"NAME".to_string(), &"X".to_string(), &"Y".to_string());
             ui.close_menu();
         }
 
@@ -322,6 +316,7 @@ impl ThisApp {
                     ui.horizontal(|ui| {
                         ui.label("Name:");
                         ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_name));
+                        //TDOO: required field
                     });
                     ui.horizontal(|ui| {
                         ui.label("Link:");
@@ -340,8 +335,9 @@ impl ThisApp {
                             let css_selector = this.runtime_state.new_row_css_selector.clone();
                             this.runtime_state.show_spinner = true;
 
-                            this.runtime_state.fetch_value_promise =
-                                Some(crate::get_web_value(String::new(), link, css_selector));
+                            this.runtime_state.fetch_value_promise = Some(
+                                crate::get_web_value_promise(String::new(), link, css_selector),
+                            );
                         }
                         if this.runtime_state.show_spinner {
                             ui.spinner();
@@ -451,43 +447,33 @@ impl ThisApp {
     fn fetch_latest_values(&mut self) {
         self.runtime_state.fetching_latest_values = true;
         self.runtime_state.fetch_latest_values_promises =
-            crate::fetch_latest_values(&self.table_data);
+            crate::fetch_latest_values_promises(&self.table_data);
     }
-    // fn fetch_latest_values(&mut self) {
-    //     println!("fecting latest values");
-    //     // Make Fetch Latest Values button unclickable
-    //     self.runtime_state.fetching_latest_values = true;
-
-    //     // Iterate over table_data and fetch latest values
-    //     for row in &self.table_data {
-    //         let id = row.id.clone();
-    //         let link = row.link.clone();
-    //         let css_selector = row.css_selector.clone();
-
-    //         let promise = crate::get_web_value(id, link, css_selector);
-    //         self.runtime_state
-    //             .fetch_latest_values_promises
-    //             .push_back(promise);
-    //     }
-    // }
 
     fn sheduled_job(&mut self, ctx: &egui::Context) {
         println!("sheduled_job called");
-        let flag = self.runtime_state.scheduled_job_flag.clone();
+        // let flag = self.runtime_state.scheduled_job_flag.clone();
         let ctx = ctx.clone();
+        let mut table_data = self.table_data.clone();
+        let sender = self.runtime_state.mpsc_sender.clone();
+
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let jobs_scheduler = JobScheduler::new().await.unwrap();
                 jobs_scheduler
                     .add(
-                        Job::new_repeated(Duration::from_secs(5), move |_uuid, _l| {
-                            flag.store(true, Ordering::SeqCst);
+                        Job::new_repeated(Duration::from_secs(10), move |_uuid, _l| {
+                            // flag.store(true, Ordering::SeqCst);
                             println!(
                                 "sheduled_job: flag set at {}",
                                 crate::get_current_date_time()
                             );
-                            // call repaint_signtal here
+                            let new_values =
+                                crate::fetch_latest_values_and_notify_blocking(&mut table_data);
+                            if let Err(e) = sender.send(new_values) {
+                                eprintln!("Failed to send new_values: {:?}", e);
+                            }
                             ctx.request_repaint();
                         })
                         .unwrap(),

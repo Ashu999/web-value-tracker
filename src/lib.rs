@@ -43,7 +43,11 @@ async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<
     Ok(value_string)
 }
 
-fn get_web_value(id: String, link: String, css_selector: String) -> Promise<(String, String)> {
+fn get_web_value_promise(
+    id: String,
+    link: String,
+    css_selector: String,
+) -> Promise<(String, String)> {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     Promise::spawn_blocking(move || {
         let result = runtime.block_on(async {
@@ -55,10 +59,19 @@ fn get_web_value(id: String, link: String, css_selector: String) -> Promise<(Str
     })
 }
 
-fn show_notifcation() {
+fn show_notifcation(name: &String, old_value: &String, new_value: &String) {
     Notification::new()
-        .summary(format!("{}", crate::get_current_date_time()).as_str())
-        .body("This will almost look like a real firefox notification.")
+        .summary(format!("Web value tracker").as_str())
+        .body(
+            format!(
+                "Value of: {:?} changed from: {:?} to: {:?}\nAt time: {:?}",
+                name,
+                old_value,
+                new_value,
+                crate::get_current_date_time(),
+            )
+            .as_str(),
+        )
         .timeout(Timeout::Never) // this however is
         .show()
         .unwrap();
@@ -68,7 +81,7 @@ fn get_current_date_time() -> String {
     chrono::Local::now().format("%b %d %H:%M:%S %Y").to_string()
 }
 
-fn fetch_latest_values(
+fn fetch_latest_values_promises(
     table_data: &Vec<crate::app::ValueData>,
 ) -> VecDeque<Promise<(String, String)>> {
     println!("fetching latest values");
@@ -79,9 +92,42 @@ fn fetch_latest_values(
         let link = row.link.clone();
         let css_selector = row.css_selector.clone();
 
-        let promise = get_web_value(id, link, css_selector);
+        let promise = get_web_value_promise(id, link, css_selector);
         promises.push_back(promise);
     }
 
     promises
+}
+
+fn fetch_latest_values_and_notify_blocking(
+    table_data: &mut Vec<crate::app::ValueData>,
+) -> VecDeque<(String, String)> {
+    println!("fetching latest values, notify");
+    let mut new_values = VecDeque::new();
+
+    for row in &*table_data {
+        let id = row.id.clone();
+        let name = row.name.clone();
+        let link = row.link.clone();
+        let css_selector = row.css_selector.clone();
+        let old_value = row.latest_value.clone();
+
+        let new_value = get_web_value_blocking(link, css_selector);
+
+        if !new_value.is_empty() && new_value != old_value {
+            show_notifcation(&name, &old_value, &new_value);
+        }
+        new_values.push_back((id, new_value));
+    }
+    new_values
+}
+
+fn get_web_value_blocking(link: String, css_selector: String) -> String {
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            crate::get_current_value(&link, &css_selector)
+                .await
+                .unwrap_or_default()
+        })
+    })
 }
