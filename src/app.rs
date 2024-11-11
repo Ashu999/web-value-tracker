@@ -3,12 +3,14 @@ use std::{
     thread::{self},
 };
 
-use egui::{Button, ScrollArea, TextEdit, Ui, Window};
+use egui::{Button, Color32, ScrollArea, TextEdit, Ui, Window};
 use egui_extras::{Column, TableBuilder};
 use poll_promise::Promise;
 use std::time::Duration;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use ulid::Ulid;
+
+const DEFAULT_CUSTOM_TIME_INTERVAL: u64 = 40;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -17,6 +19,7 @@ pub struct ThisApp {
     table_data: Vec<ValueData>,
     column_names: Vec<String>,
     selected_rows: Vec<bool>,
+    custom_time_interval: u64,
     #[serde(skip)]
     runtime_state: RuntimeState,
 }
@@ -37,6 +40,7 @@ struct RuntimeState {
     scheduled_job_setup: bool,
     mpsc_sender: std::sync::mpsc::Sender<VecDeque<(String, String)>>,
     mpsc_receiver: std::sync::mpsc::Receiver<VecDeque<(String, String)>>,
+    show_custom_interval_dialog: bool,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -64,6 +68,7 @@ impl Default for ThisApp {
                 "Last Updated".to_owned(),
             ],
             selected_rows: vec![false; 0],
+            custom_time_interval: DEFAULT_CUSTOM_TIME_INTERVAL,
             runtime_state: RuntimeState {
                 show_delete_confirmation_dialog: false,
                 show_add_row_dialog: false,
@@ -80,6 +85,7 @@ impl Default for ThisApp {
                 scheduled_job_setup: false,
                 mpsc_sender,
                 mpsc_receiver,
+                show_custom_interval_dialog: false,
             },
         }
     }
@@ -267,7 +273,7 @@ impl ThisApp {
                 self.fetch_latest_values();
             }
 
-            ui.menu_button("📐 Settings", Self::nested_menus);
+            ui.menu_button("📐 Settings", |ui| self.nested_menus(ui));
 
             // dark/light mode toggle button
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -276,7 +282,7 @@ impl ThisApp {
         });
     }
 
-    fn nested_menus(ui: &mut egui::Ui) {
+    fn nested_menus(&mut self, ui: &mut egui::Ui) {
         ui.set_max_width(200.0); // To make sure we wrap long text
 
         if ui.button("🔔 Test notification").clicked() {
@@ -284,7 +290,8 @@ impl ThisApp {
             ui.close_menu();
         }
 
-        if ui.button("⏳ Set time interval").clicked() {
+        if ui.button("⏳ Set custom time interval").clicked() {
+            self.runtime_state.show_custom_interval_dialog = true;
             ui.close_menu();
         }
     }
@@ -303,6 +310,7 @@ impl ThisApp {
     fn condional_components(&mut self, ctx: &egui::Context) {
         Self::add_row_dialog(self, ctx);
         Self::delete_confirmation_dialog(self, ctx);
+        Self::custom_interval_dialog(self, ctx);
     }
 
     fn add_row_dialog(&mut self, ctx: &egui::Context) {
@@ -434,6 +442,31 @@ impl ThisApp {
         }
     }
 
+    fn custom_interval_dialog(&mut self, ctx: &egui::Context) {
+        if self.runtime_state.show_custom_interval_dialog {
+            let mut open = self.runtime_state.show_custom_interval_dialog;
+            Window::new("Set Custom Time Interval")
+                .open(&mut open)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.label(format!(
+                        "Current time interval: {} minutes",
+                        self.custom_time_interval
+                    ));
+
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.custom_time_interval)
+                                .range(1..=u64::MAX),
+                        );
+                        ui.label("minutes");
+                    });
+                    ui.colored_label(Color32::RED, "* Restart the app to apply changes.");
+                });
+            self.runtime_state.show_custom_interval_dialog = open;
+        }
+    }
+
     fn update_value(&mut self, id: String, value: String) {
         println!("Updating value for ID: {}, Value: {}", id, value);
         if let Some(index) = self.table_data.iter().position(|row| row.id == id) {
@@ -450,12 +483,13 @@ impl ThisApp {
             crate::fetch_latest_values_promises(&self.table_data);
     }
 
-    fn sheduled_job(&mut self, ctx: &egui::Context) {
+    fn sheduled_job(&mut self, ctx: &egui::Context) -> thread::JoinHandle<()> {
         println!("sheduled_job called");
-        // let flag = self.runtime_state.scheduled_job_flag.clone();
         let ctx = ctx.clone();
         let mut table_data = self.table_data.clone();
         let sender = self.runtime_state.mpsc_sender.clone();
+        let custom_time_interval = self.custom_time_interval.clone();
+        println!("custom_time_interval: {}", custom_time_interval);
 
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -463,19 +497,22 @@ impl ThisApp {
                 let jobs_scheduler = JobScheduler::new().await.unwrap();
                 jobs_scheduler
                     .add(
-                        Job::new_repeated(Duration::from_secs(10), move |_uuid, _l| {
-                            // flag.store(true, Ordering::SeqCst);
-                            println!(
-                                "sheduled_job: flag set at {}",
-                                crate::get_current_date_time()
-                            );
-                            let new_values =
-                                crate::fetch_latest_values_and_notify_blocking(&mut table_data);
-                            if let Err(e) = sender.send(new_values) {
-                                eprintln!("Failed to send new_values: {:?}", e);
-                            }
-                            ctx.request_repaint();
-                        })
+                        Job::new_repeated(
+                            Duration::from_secs(custom_time_interval * 60),
+                            move |_uuid, _l| {
+                                // flag.store(true, Ordering::SeqCst);
+                                println!(
+                                    "sheduled_job: flag set at {}",
+                                    crate::get_current_date_time()
+                                );
+                                let new_values =
+                                    crate::fetch_latest_values_and_notify_blocking(&mut table_data);
+                                if let Err(e) = sender.send(new_values) {
+                                    eprintln!("Failed to send new_values: {:?}", e);
+                                }
+                                ctx.request_repaint();
+                            },
+                        )
                         .unwrap(),
                     )
                     .await
@@ -483,6 +520,6 @@ impl ThisApp {
                 jobs_scheduler.start().await.unwrap();
                 tokio::signal::ctrl_c().await.unwrap();
             });
-        });
+        })
     }
 }
