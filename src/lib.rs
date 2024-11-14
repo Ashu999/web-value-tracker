@@ -32,6 +32,7 @@ async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<
 
     // Extract the value string from the JavaScript result
     let mut value_string = value_js_result.value.unwrap().to_string();
+    println!("value_string: {}", value_string);
 
     // Remove leading and trailing quotes
     if value_string.starts_with('"') && value_string.ends_with('"') {
@@ -39,7 +40,6 @@ async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<
         value_string.pop();
     }
 
-    println!("value_string: {}", value_string); //this runs even when app is minimized
     Ok(value_string)
 }
 

@@ -335,6 +335,7 @@ impl ThisApp {
                         ui.add(TextEdit::singleline(
                             &mut this.runtime_state.new_row_css_selector,
                         ));
+                        ui.hyperlink_to("what?", "https://github.com/Ashu999/web-value-tracker?tab=readme-ov-file#css-selectors");
                     });
 
                     ui.horizontal(|ui| {
