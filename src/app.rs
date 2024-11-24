@@ -323,18 +323,17 @@ impl ThisApp {
                     let this = &mut *self; // Reborrow self inside the closure
                     ui.horizontal(|ui| {
                         ui.label("Name:");
-                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_name));
-                        //TDOO: required field
+                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_name).hint_text("enter any name"));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Link:");
-                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_link));
+                        ui.add(TextEdit::singleline(&mut this.runtime_state.new_row_link).hint_text("enter link of the webpage"));
                     });
                     ui.horizontal(|ui| {
                         ui.label("CSS Selector:");
                         ui.add(TextEdit::singleline(
                             &mut this.runtime_state.new_row_css_selector,
-                        ));
+                        ).hint_text("enter css selector of the thing you want to track"));
                         ui.hyperlink_to("what?", "https://github.com/Ashu999/web-value-tracker?tab=readme-ov-file#css-selectors");
                     });
 
@@ -361,7 +360,7 @@ impl ThisApp {
                         ui.label("Fetched value:");
                         ui.add(
                             TextEdit::singleline(&mut this.runtime_state.new_row_value)
-                                .interactive(false),
+                                .interactive(false).hint_text("will autofill after fetching value"),
                         );
                     });
 
