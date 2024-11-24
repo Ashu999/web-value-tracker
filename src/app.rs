@@ -217,8 +217,10 @@ impl ThisApp {
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .columns(Column::auto(), 1) // Checkbox column
-                .columns(Column::auto(), self.column_names.len())
+                .column(Column::auto()) // Checkbox column
+                .column(Column::auto().clip(true))
+                .column(Column::auto().clip(true))
+                .columns(Column::auto().clip(true), self.column_names.len()-2)
                 .header(20.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("Select");
@@ -232,7 +234,7 @@ impl ThisApp {
                 .body(|mut body| {
                     for (row_index, row_data) in self.table_data.iter().enumerate() {
                         let row_is_selected = self.selected_rows[row_index];
-                        body.row(18.0, |mut row| {
+                        body.row(25.0, |mut row| {
                             row.col(|ui| {
                                 if ui
                                     .checkbox(&mut self.selected_rows[row_index], "")
@@ -344,6 +346,7 @@ impl ThisApp {
             Window::new("Add New Row")
                 .open(&mut open)
                 .collapsible(false)
+                .auto_sized()
                 .show(ctx, |ui| {
                     let this = &mut *self; // Reborrow self inside the closure
                     ui.horizontal(|ui| {
