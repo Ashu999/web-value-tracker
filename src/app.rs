@@ -91,6 +91,31 @@ impl Default for ThisApp {
     }
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum SelectorOption {
+    Custom,
+    AmazonPrice,
+    EbayPrice,
+}
+
+impl SelectorOption {
+    fn as_str(&self) -> &'static str {
+        match self {
+            SelectorOption::Custom => "Custom",
+            SelectorOption::AmazonPrice => "Amazon Price",
+            SelectorOption::EbayPrice => "Ebay Price",
+        }
+    }
+
+    fn get_selector(&self) -> &'static str {
+        match self {
+            SelectorOption::Custom => "",
+            SelectorOption::AmazonPrice => ".a-offscreen",
+            SelectorOption::EbayPrice => "div.x-price-primary span.ux-textspans",
+        }
+    }
+}
+
 impl ThisApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -331,9 +356,32 @@ impl ThisApp {
                     });
                     ui.horizontal(|ui| {
                         ui.label("CSS Selector:");
-                        ui.add(TextEdit::singleline(
-                            &mut this.runtime_state.new_row_css_selector,
-                        ).hint_text("enter css selector of the thing you want to track"));
+                        let options = [SelectorOption::Custom, SelectorOption::AmazonPrice, SelectorOption::EbayPrice];
+                        let current_option = if this.runtime_state.new_row_css_selector == ".a-offscreen" {
+                            SelectorOption::AmazonPrice
+                        } else if this.runtime_state.new_row_css_selector == "div.x-price-primary span.ux-textspans" {
+                            SelectorOption::EbayPrice
+                        } else {
+                            SelectorOption::Custom
+                        };
+                        
+                        let mut selected_option = current_option;
+                        
+                        egui::ComboBox::from_label("")
+                            .selected_text(selected_option.as_str())
+                            .show_ui(ui, |ui| {
+                                for option in options {
+                                    if ui.selectable_value(&mut selected_option, option, option.as_str()).clicked() {
+                                        this.runtime_state.new_row_css_selector = selected_option.get_selector().to_string();
+                                    }
+                                }
+                            });
+                        
+                        ui.add_enabled(
+                            selected_option == SelectorOption::Custom,
+                            TextEdit::singleline(&mut this.runtime_state.new_row_css_selector)
+                                .hint_text("enter css selector of the thing you want to track"),
+                        );
                         ui.hyperlink_to("what?", "https://github.com/Ashu999/web-value-tracker?tab=readme-ov-file#css-selectors");
                     });
 
