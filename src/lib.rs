@@ -39,6 +39,7 @@ async fn get_current_value(url: &str, css_selector: &str) -> Result<String, Box<
         value_string.remove(0);
         value_string.pop();
     }
+    value_string = value_string.trim().to_string();
 
     Ok(value_string)
 }

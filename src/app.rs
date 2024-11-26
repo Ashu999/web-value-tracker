@@ -94,7 +94,8 @@ impl Default for ThisApp {
 #[derive(PartialEq, Clone, Copy)]
 enum SelectorOption {
     Custom,
-    AmazonPrice,
+    AmazonItemPrice,
+    AmazonBookPrice,
     EbayPrice,
 }
 
@@ -102,16 +103,24 @@ impl SelectorOption {
     fn as_str(&self) -> &'static str {
         match self {
             SelectorOption::Custom => "Custom",
-            SelectorOption::AmazonPrice => "Amazon Price",
+            SelectorOption::AmazonItemPrice => "Amazon Item Price",
+            SelectorOption::AmazonBookPrice => "Amazon Book Price",
             SelectorOption::EbayPrice => "Ebay Price",
         }
+    }
+
+    fn get_options() -> [SelectorOption; 4] {
+        [SelectorOption::Custom, SelectorOption::AmazonItemPrice, SelectorOption::AmazonBookPrice, SelectorOption::EbayPrice
+         ]
     }
 
     fn get_selector(&self) -> &'static str {
         match self {
             SelectorOption::Custom => "",
-            SelectorOption::AmazonPrice => ".a-offscreen",
+            SelectorOption::AmazonItemPrice => ".a-offscreen",
+            SelectorOption::AmazonBookPrice => ".aok-offscreen",
             SelectorOption::EbayPrice => "div.x-price-primary span.ux-textspans",
+            
         }
     }
 }
@@ -359,14 +368,11 @@ impl ThisApp {
                     });
                     ui.horizontal(|ui| {
                         ui.label("CSS Selector:");
-                        let options = [SelectorOption::Custom, SelectorOption::AmazonPrice, SelectorOption::EbayPrice];
-                        let current_option = if this.runtime_state.new_row_css_selector == ".a-offscreen" {
-                            SelectorOption::AmazonPrice
-                        } else if this.runtime_state.new_row_css_selector == "div.x-price-primary span.ux-textspans" {
-                            SelectorOption::EbayPrice
-                        } else {
-                            SelectorOption::Custom
-                        };
+                        let options = SelectorOption::get_options();
+                        let current_option = options.iter()
+                        .find(|&&opt| opt.get_selector() == this.runtime_state.new_row_css_selector)
+                        .copied()
+                        .unwrap_or(SelectorOption::Custom);
                         
                         let mut selected_option = current_option;
                         

@@ -5,5 +5,6 @@ Track any value on the web and get notified when it changes. Example: ebay, amaz
 ### CSS selectors ([how?](https://www.glowmetrics.com/blog/how-to-test-css-selectors-using-the-chrome-dev-console/))
 | Website | Element | CSS Selector |
 |---------|---------|--------------|
-| Amazon  | Product Price | `.a-offscreen` |
+| Amazon  | Book Price | `.aok-offscreen` |
+| Amazon  | Item Price | `.a-offscreen` |
 | ebay    | Product Price | `div.x-price-primary span.ux-textspans` |
