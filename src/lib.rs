@@ -62,7 +62,7 @@ fn get_web_value_promise(
 
 fn show_notifcation(name: &String, old_value: &String, new_value: &String) {
     Notification::new()
-        .summary(format!("Web value tracker").as_str())
+        .summary("Web value tracker")
         .body(
             format!(
                 "Value of: {:?} changed from: {:?} to: {:?}\nAt time: {:?}",

@@ -110,8 +110,12 @@ impl SelectorOption {
     }
 
     fn get_options() -> [SelectorOption; 4] {
-        [SelectorOption::Custom, SelectorOption::AmazonItemPrice, SelectorOption::AmazonBookPrice, SelectorOption::EbayPrice
-         ]
+        [
+            SelectorOption::Custom,
+            SelectorOption::AmazonItemPrice,
+            SelectorOption::AmazonBookPrice,
+            SelectorOption::EbayPrice,
+        ]
     }
 
     fn get_selector(&self) -> &'static str {
@@ -120,7 +124,6 @@ impl SelectorOption {
             SelectorOption::AmazonItemPrice => ".a-offscreen",
             SelectorOption::AmazonBookPrice => ".aok-offscreen",
             SelectorOption::EbayPrice => "div.x-price-primary span.ux-textspans",
-            
         }
     }
 }
@@ -229,7 +232,7 @@ impl ThisApp {
                 .column(Column::auto()) // Checkbox column
                 .column(Column::auto().clip(true))
                 .column(Column::auto().clip(true))
-                .columns(Column::auto().clip(true), self.column_names.len()-2)
+                .columns(Column::auto().clip(true), self.column_names.len() - 2)
                 .header(20.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("Select");
@@ -373,9 +376,8 @@ impl ThisApp {
                         .find(|&&opt| opt.get_selector() == this.runtime_state.new_row_css_selector)
                         .copied()
                         .unwrap_or(SelectorOption::Custom);
-                        
+
                         let mut selected_option = current_option;
-                        
                         egui::ComboBox::from_label("")
                             .selected_text(selected_option.as_str())
                             .show_ui(ui, |ui| {
@@ -385,7 +387,7 @@ impl ThisApp {
                                     }
                                 }
                             });
-                        
+
                         ui.add_enabled(
                             selected_option == SelectorOption::Custom,
                             TextEdit::singleline(&mut this.runtime_state.new_row_css_selector)
@@ -427,7 +429,7 @@ impl ThisApp {
                         }
 
                         let add_button = ui.add_enabled(
-                            this.runtime_state.new_row_value.len() > 0,
+                            !this.runtime_state.new_row_value.is_empty(),
                             Button::new("Add"),
                         );
                         if add_button.clicked() {
@@ -545,7 +547,7 @@ impl ThisApp {
         let ctx = ctx.clone();
         let mut table_data = self.table_data.clone();
         let sender = self.runtime_state.mpsc_sender.clone();
-        let custom_time_interval = self.custom_time_interval.clone();
+        let custom_time_interval = self.custom_time_interval;
         println!("custom_time_interval: {}", custom_time_interval);
 
         thread::spawn(move || {
