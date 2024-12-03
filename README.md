@@ -10,3 +10,6 @@ Track any value on the web and get notified when it changes. Example: ebay, amaz
 | Amazon  | Book Price | `.aok-offscreen` |
 | Amazon  | Item Price | `.a-offscreen` |
 | ebay    | Product Price | `div.x-price-primary span.ux-textspans` |
+
+## ScreenShot
+<img src=".readme\web-value-tracker.jpg"/>
