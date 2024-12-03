@@ -393,7 +393,7 @@ impl ThisApp {
                             TextEdit::singleline(&mut this.runtime_state.new_row_css_selector)
                                 .hint_text("enter css selector of the thing you want to track"),
                         );
-                        ui.hyperlink_to("what?", "https://github.com/Ashu999/web-value-tracker?tab=readme-ov-file#css-selectors");
+                        ui.hyperlink_to("what?", "https://github.com/Ashu999/web-value-tracker?tab=readme-ov-file#css-selectors-how");
                     });
 
                     ui.horizontal(|ui| {
@@ -509,7 +509,7 @@ impl ThisApp {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.label(format!(
-                        "Current time interval: {} minutes",
+                        "Values will be checked every: {} minutes",
                         self.custom_time_interval
                     ));
 
