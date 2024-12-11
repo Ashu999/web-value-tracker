@@ -3404,7 +3404,7 @@ dependencies = [
 
 [[package]]
 name = "web_value_tracker"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "chrono",
  "crossbeam-channel",

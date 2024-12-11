@@ -120,6 +120,8 @@ fn fetch_latest_values_and_notify_blocking(
         }
         new_values.push_back((id, new_value));
     }
+    //update this backend table's values as well
+    update_backend_table_values(table_data, new_values.clone());
     new_values
 }
 
@@ -131,4 +133,19 @@ fn get_web_value_blocking(link: String, css_selector: String) -> String {
                 .unwrap_or_default()
         })
     })
+}
+
+fn update_backend_table_values(
+    table_data: &mut Vec<crate::app::ValueData>,
+    new_values: VecDeque<(String, String)>,
+) {
+    for (id, value) in new_values {
+        println!("Backend: Updating value for ID: {}, Value: {}", id, value);
+        if let Some(index) = table_data.iter().position(|row| row.id == id) {
+            let row = &mut table_data[index];
+            row.previous_value = row.latest_value.clone();
+            row.latest_value = value;
+            row.last_updated = crate::get_current_date_time();
+        }
+    }
 }
